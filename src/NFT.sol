@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.10;
+pragma solidity >=0.8.10;
 
-import "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import "solmate/tokens/ERC721.sol";
 import "openzeppelin-contracts/contracts/utils/Strings.sol";
-import "openzeppelin-contracts/contracts/security/PullPayment.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 
-contract OpenZeppelinNft is ERC721, PullPayment, Ownable {
+error MintPriceNotPaid();
+error MaxSupply();
+error NonExistentTokenURI();
+error WithdrawTransfer();
+
+contract NFT is ERC721, Ownable {
 
     using Strings for uint256;
     string public baseURI;
     uint256 public currentTokenId;
     uint256 public constant TOTAL_SUPPLY = 10_000;
-    uint256 public constant MINT_PRICE = 0.08 ether;
+    uint256 public constant MINT_PRICE = 0.008 ether;
 
     constructor(
         string memory _name,
@@ -23,12 +27,13 @@ contract OpenZeppelinNft is ERC721, PullPayment, Ownable {
     }
 
     function mintTo(address recipient) public payable returns (uint256) {
-        require(
-            msg.value == MINT_PRICE,
-            "Transaction value did not equal the mint price"
-        );
+        if (msg.value != MINT_PRICE) {
+            revert MintPriceNotPaid();
+        }
         uint256 newTokenId = ++currentTokenId;
-        require(newTokenId <= TOTAL_SUPPLY, "Max supply reached");
+        if (newTokenId > TOTAL_SUPPLY) {
+            revert MaxSupply();
+        }
         _safeMint(recipient, newTokenId);
         return newTokenId;
     }
@@ -40,18 +45,20 @@ contract OpenZeppelinNft is ERC721, PullPayment, Ownable {
         override
         returns (string memory)
     {
-        require(
-            ownerOf(tokenId) != address(0),
-            "ERC721Metadata: URI query for nonexistent token"
-        );
+        if (ownerOf(tokenId) == address(0)) {
+            revert NonExistentTokenURI();
+        }
         return
             bytes(baseURI).length > 0
                 ? string(abi.encodePacked(baseURI, tokenId.toString()))
                 : "";
     }
 
-    /// @dev Overridden in order to make it an onlyOwner function
-    function withdrawPayments(address payable payee) public override onlyOwner {
-        super.withdrawPayments(payee);
+    function withdrawPayments(address payable payee) external onlyOwner {
+        uint256 balance = address(this).balance;
+        (bool transferTx, ) = payee.call{value: balance}("");
+        if (!transferTx) {
+            revert WithdrawTransfer();
+        }
     }
 }
